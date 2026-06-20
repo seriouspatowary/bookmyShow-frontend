@@ -1,8 +1,19 @@
+"use client"
+
 import { ChevronDown, Menu, Search } from "lucide-react";
 import Image from "next/image";
+import { useState } from "react";
+import AuthModal from "./AuthModal";
+import CityModal from "./CityModal";
 
 const Navbar = () => {
+
+  const[isOpen, setIsOpen] = useState(false);
+  const [isCityModalOpen, setIsCityModalOpen] = useState(false);
+
   return (
+   <>
+   
    <div className="h-16 flex items-center justify-between px-30">
        <div className="flex items-center gap-6">
                <Image
@@ -26,19 +37,44 @@ const Navbar = () => {
         </div>
 
          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-1 cursor-pointer">
+            <div className="flex items-center gap-1 cursor-pointer"
+            onClick={() => setIsCityModalOpen(true)}
+            >
               <span>Guwahati</span>
               <ChevronDown size={18} />
             </div>
 
-            <button className="bg-[#eb4e62] text-white px-4 py-1 rounded-md text-sm">
+              <button onClick={()=>setIsOpen(true)} className="bg-[#eb4e62] text-white px-4 py-1 rounded-md text-sm cursor-pointer">
                 Sign in
               </button>
 
           <Menu size={30} />
         </div>
+
       
   </div>
+
+      {isOpen && (
+          <AuthModal
+            isOpen={isOpen}
+            onClose={() => setIsOpen(false)}
+          />
+        )}
+          {isCityModalOpen &&
+            (
+              <CityModal
+                isOpen={isCityModalOpen}
+                onClose={() => setIsCityModalOpen(false)}
+              />
+            ) 
+          }
+
+        
+   
+   </>
+
+
+  
   );
 };
 
