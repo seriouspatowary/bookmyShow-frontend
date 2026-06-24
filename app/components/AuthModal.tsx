@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { X } from "lucide-react";
+import { useDispatch } from "react-redux";
+import { loginSuccess } from "../redux/slice/authSlice";
+import { access } from "fs";
 
 type AuthModalProps = {
   isOpen: boolean;
@@ -13,6 +16,80 @@ export default function AuthModal({
   onClose,
 }: AuthModalProps) {
   const [isSignUp, setIsSignUp] = useState(false);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const dispatch = useDispatch();
+ 
+
+// 1. Handle Registration Logic
+  const handleRegistration = async () => {
+    try {
+
+      setLoading(true);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, phone, email, password })
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        setIsSignUp(false); // Switch to Sign In after successful registration
+      }
+    } catch (error) {
+      console.error("Registration error:", error);
+    }finally{
+      setLoading(false);
+    }
+  };
+
+  // 2. Handle Login Logic
+  const handleLogin = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API}/api/auth/login`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await response.json();
+
+       if (!data.success) {
+          alert(data.message);
+          return;
+       }
+
+     
+
+        dispatch(loginSuccess({
+            user:data.user,
+            accessToken : data.accessToken
+        }));
+        onClose();
+    } catch (error) {
+      console.error("Login error:", error);
+    }finally{
+      setLoading(false);
+    }
+  };
+
+  // 3. Conditional Master Submit Handler
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); // Prevents page reload for both login and signup
+    
+    if (isSignUp) {
+      await handleRegistration();
+    } else {
+      await handleLogin();
+    }
+  };
+
+
 
   if (!isOpen) return null;
 
@@ -40,10 +117,12 @@ export default function AuthModal({
         </div>
 
         {/* Form */}
-        <div className="mt-6 flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
           {isSignUp && (
             <input
               type="text"
+              value={name}
+              onChange={(e)=>setName(e.target.value)}
               placeholder="Enter Name"
               className="w-full border border-gray-300 rounded-md px-3 py-2 outline-none focus:border-[#f84464]"
             />
@@ -52,6 +131,8 @@ export default function AuthModal({
           {isSignUp && (
             <input
               type="tel"
+              value={phone}
+              onChange={(e)=>setPhone(e.target.value)}
               placeholder="Enter Phone Number"
               className="w-full border border-gray-300 rounded-md px-3 py-2 outline-none focus:border-[#f84464]"
             />
@@ -60,19 +141,26 @@ export default function AuthModal({
           <input
             type="email"
             placeholder="Enter Email"
+            value={email}
+            onChange={(e)=>setEmail(e.target.value)}
             className="w-full border border-gray-300 rounded-md px-3 py-2 outline-none focus:border-[#f84464]"
           />
 
           <input
             type="password"
             placeholder="Enter Password"
+            value={password}
+            onChange={(e)=> setPassword(e.target.value)}
             className="w-full border border-gray-300 rounded-md px-3 py-2 outline-none focus:border-[#f84464]"
           />
 
-          <button className="w-full bg-[#f84464] text-white py-2 rounded-md cursor-pointer hover:opacity-90 transition">
-            {isSignUp ? "Create Account" : "Sign In"}
+          <button
+           className="w-full bg-[#f84464] text-white py-2 rounded-md cursor-pointer hover:opacity-90 transition"
+           disabled={loading}
+           >
+            { loading ? isSignUp ? "Creating...": "Signing In...":  isSignUp? "Create Account": "Sign In"}
           </button>
-        </div>
+        </form>
 
         {/* Toggle */}
         <div className="mt-5 text-center text-sm">

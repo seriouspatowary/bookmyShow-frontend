@@ -5,11 +5,20 @@ import Image from "next/image";
 import { useState } from "react";
 import AuthModal from "./AuthModal";
 import CityModal from "./CityModal";
+import { useSelector } from "react-redux";
+import { RootState } from "@/app/redux/store/store";
+import UserDrawer from "./UserDrawer";
+
 
 const Navbar = () => {
 
   const[isOpen, setIsOpen] = useState(false);
   const [isCityModalOpen, setIsCityModalOpen] = useState(false);
+
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+
+  const user = useSelector((state: RootState) => state.auth.user);
 
   return (
    <>
@@ -34,6 +43,7 @@ const Navbar = () => {
                   className="outline-none w-full placeholder:text-sm"
                 />
               </div>
+              
         </div>
 
          <div className="flex items-center gap-6">
@@ -44,22 +54,44 @@ const Navbar = () => {
               <ChevronDown size={18} />
             </div>
 
-              <button onClick={()=>setIsOpen(true)} className="bg-[#eb4e62] text-white px-4 py-1 rounded-md text-sm cursor-pointer">
-                Sign in
-              </button>
+             
 
-          <Menu size={30} />
+
+              {
+
+                user? (
+                  <div className="flex items-center gap-2 cursor-pointer"
+                   onClick={()=> setIsDrawerOpen(true)}>
+                     <img src="/guest.png" alt="user"  className="h-8 w-8 rounded-full border-1 text-gray-300"/>
+                      <span className="text-sm">
+                        Hi, Guest
+                      </span>
+                  </div>
+
+                ):(
+                  <>
+
+                  <button onClick={()=>setIsOpen(true)} className="bg-[#eb4e62] text-white px-4 py-1 rounded-md text-sm cursor-pointer">
+                    Sign in
+                 </button>
+                 <Menu size={30} />
+                  </>
+                  
+                )
+              }
+
+          
         </div>
 
       
   </div>
 
-      {isOpen && (
-          <AuthModal
-            isOpen={isOpen}
-            onClose={() => setIsOpen(false)}
-          />
-        )}
+        {isOpen && (
+            <AuthModal
+              isOpen={isOpen}
+              onClose={() => setIsOpen(false)}
+            />
+          )}
           {isCityModalOpen &&
             (
               <CityModal
@@ -68,6 +100,13 @@ const Navbar = () => {
               />
             ) 
           }
+
+        
+              <UserDrawer 
+                isOpen= {isDrawerOpen}
+                onClose={()=> setIsDrawerOpen(false)
+
+              }/>
 
         
    

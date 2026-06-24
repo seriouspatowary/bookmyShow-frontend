@@ -1,10 +1,7 @@
 import React from 'react'
 
 const Header = async() => {
-  const res = await fetch("https://ipapi.co/json/");
-const data = await res.json();
 
-console.log("baal",data.city);
   return (
  
           <div className="h-12 flex items-center justify-between bg-[#f5f5f5] px-30 text-xs">
