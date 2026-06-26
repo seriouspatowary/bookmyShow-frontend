@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useDispatch } from "react-redux";
-import { loginSuccess } from "@/app/redux/slice/authSlice";
+import { loginSuccess, logout } from "@/app/redux/slice/authSlice";
 import { restoreAuth } from "@/app/lib/auth";
 
 export default function AuthInitializer() {
@@ -22,7 +22,8 @@ export default function AuthInitializer() {
           );
         }
       } catch (error) {
-        console.log("No active session");
+        console.log("Refresh failed");
+        dispatch(logout());
       }
     };
 

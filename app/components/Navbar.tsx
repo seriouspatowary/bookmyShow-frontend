@@ -18,7 +18,10 @@ const Navbar = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
 
-  const user = useSelector((state: RootState) => state.auth.user);
+   const { user} = useSelector(
+      (state: RootState) => state.auth
+    );
+
 
   return (
    <>
@@ -74,7 +77,9 @@ const Navbar = () => {
                   <button onClick={()=>setIsOpen(true)} className="bg-[#eb4e62] text-white px-4 py-1 rounded-md text-sm cursor-pointer">
                     Sign in
                  </button>
-                 <Menu size={30} />
+
+
+                  <Menu size={30} />
                   </>
                   
                 )
