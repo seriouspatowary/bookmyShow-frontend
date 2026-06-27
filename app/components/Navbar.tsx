@@ -8,6 +8,7 @@ import CityModal from "./CityModal";
 import { useSelector } from "react-redux";
 import { RootState } from "@/app/redux/store/store";
 import UserDrawer from "./UserDrawer";
+import NormalDrawer from "./UnauthDrawer";
 
 
 const Navbar = () => {
@@ -16,6 +17,7 @@ const Navbar = () => {
   const [isCityModalOpen, setIsCityModalOpen] = useState(false);
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isNormalDrawer, setNormalDrawer] = useState(false)
 
 
    const { user} = useSelector(
@@ -78,8 +80,10 @@ const Navbar = () => {
                     Sign in
                  </button>
 
-
-                  <Menu size={30} />
+                   <div onClick={()=>setNormalDrawer(true)}>
+                       <Menu size={30} />
+                   </div>
+                 
                   </>
                   
                 )
@@ -113,6 +117,12 @@ const Navbar = () => {
 
               }/>
 
+             <NormalDrawer
+              isOpen= {isNormalDrawer}
+
+              onClose={()=>setNormalDrawer(false)}
+             
+             />
         
    
    </>

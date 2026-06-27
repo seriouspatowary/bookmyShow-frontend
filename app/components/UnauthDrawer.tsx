@@ -1,19 +1,23 @@
 "use client";
 
-import { BellRingIcon, BookmarkCheck, ChevronRight, CreditCard, GiftIcon, Info, LucideSettings, MessageCircleMoreIcon, MonitorPlayIcon, ShoppingBagIcon } from "lucide-react";
+import { BellRingIcon, BookmarkCheck, ChevronRight, CreditCard, GiftIcon, Info, Lock, LucideSettings, MessageCircleMoreIcon, MonitorPlayIcon, ShoppingBagIcon } from "lucide-react";
 import { useDispatch } from "react-redux";
 import { logout } from "../redux/slice/authSlice";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
+import AuthModal from "./AuthModal";
 
 type Props = {
   isOpen: boolean;
   onClose: () => void;
 };
 
-export default function UserDrawer({
+export default function NormalDrawer({
   isOpen,
   onClose,
 }: Props) {
+
+   const[Open, setIsOpen] = useState(false);
 
   const dispatch = useDispatch();
 
@@ -79,50 +83,52 @@ export default function UserDrawer({
 
 
        <div className="border-b border-gray-200 p-3">
-          <div className="flex justify-between items-start">
+          <div className="flex items-start mt-2">
 
               <div>
                  <h2 className="text-xl font-bold text-gray-800">
                     Hey!
                  </h2>
 
-                 <button className="flex items-center text-xs text-gray-600 mt-1 cursor-pointer">
-                    Edit Profile
-                    <ChevronRight size={15}/>
-                 </button>
+                
               </div>
-
-            <div>
-               <img src="/guest.png" alt="user"  className="h-10 w-10 rounded-full border-1 text-gray-300 mt-1"/>
-            </div>
-              
  
           </div>
        </div>
 
        {/* yellow notification */}
 
-       <div className="bg-[#fff4d6]  border-gray-200 px-4 py-4">
+       <div className="border-b border-gray-200 px-4 py-4">
         <div className="flex items-center justify-between">
          <div className="flex items-center gap-3">
-               <Info
-                size={14}
-                className="text-gray-600"
-              />
+               <div>
+               <img src="/gift.jpeg" alt="user"  className="h-12 w-12 rounded-full border-1 text-gray-300 mt-1"/>
+            </div>
               <div>
-                <p className="text-sm text-gray-800 mb-1">
-                  Get tickets on Whatsapp/SMS!
+                <p className="text-sm text-[#747EAA] mb-1">
+                  Unlock special offers &
                 </p>
 
-                <p className="text-xs text-gray-600">
-                  Add your Mobile Number
+                <p className="text-xs text-[#747EAA]">
+                  great benefits
                 </p>
               </div>
              
          </div>
 
-          <ChevronRight size={20} className="text-gray-500"/>
-
+        <div className="">
+           <button className="w-30
+              h-9
+              rounded-md
+              border
+              border-red-400
+              bg-white
+              text-red-500
+              text-sm
+              font-medium
+              transition-colors
+             cursor-pointer" onClick={()=>setIsOpen(true)}>Login / Register</button>
+         </div>
         </div>
       </div>
 
@@ -147,18 +153,18 @@ export default function UserDrawer({
 
        {/* your oders */}
 
-      <div className="border-b border-gray-200 px-4 py-4">
+      <div className="border-b border-gray-200 bg-gray-100 opacity-90 pointer-events-none cursor-not-allowed px-4 py-4">
           <div className="flex items-center justify-between">
 
                 <div className="flex items-center gap-3">
 
-                    <ShoppingBagIcon size={18}/>
+                    <ShoppingBagIcon size={18} className="text-gray-400"/>
                     <div>
-                        <p className="text-sm text-gray-800 mb-1">
+                        <p className="text-sm text-gray-400 mb-1">
                           Your Orders
                         </p>
 
-                      <p className="text-xs text-gray-600">
+                      <p className="text-xs text-gray-400">
                          View all your bookings & purchase
                       </p>
 
@@ -167,7 +173,7 @@ export default function UserDrawer({
                 </div>
 
 
-               <ChevronRight size={18} className="text-gray-500"/>
+               <Lock size={18} className="text-gray-400"/>
           </div>
 
       </div>
@@ -176,18 +182,18 @@ export default function UserDrawer({
       {/* stream library */}
 
 
-      <div className="border-b border-gray-200 px-4 py-4">
+      <div className="border-b border-gray-200 bg-gray-100 opacity-90 pointer-events-none cursor-not-allowed px-4 py-4">
           <div className="flex items-center justify-between">
 
                 <div className="flex items-center gap-3">
 
-                    <MonitorPlayIcon size={18}/>
+                    <MonitorPlayIcon size={18} className="text-gray-400"/>
                     <div>
-                        <p className="text-sm text-gray-800 mb-1">
+                        <p className="text-sm text-gray-400 mb-1">
                           Stream Library
                         </p>
 
-                      <p className="text-xs text-gray-600">
+                      <p className="text-xs text-gray-400">
                          Rented & Purchased Movies
                       </p>
 
@@ -196,7 +202,7 @@ export default function UserDrawer({
                 </div>
 
 
-               <ChevronRight size={18} className="text-gray-500"/>
+               <Lock size={18} className="text-gray-400"/>
           </div>
 
       </div>
@@ -247,19 +253,19 @@ export default function UserDrawer({
 
            {/* Accounts And Settings */}
 
-        <div className="border-b border-gray-200 px-4 py-4">
+        <div className="border-b border-gray-200 bg-gray-100 opacity-90 pointer-events-none cursor-not-allowed px-4 py-4">
               <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                     <LucideSettings size={18}/>
+                     <LucideSettings size={18} className="text-gray-400"/>
 
                      <div>
-                         <p className="text-sm text-grey-800">Accounts & Settings</p>
-                         <p className="text-xs text-gray-600">Location, Payments, Permissions & More</p>
+                         <p className="text-sm text-gray-400">Accounts & Settings</p>
+                         <p className="text-xs text-gray-400">Location, Payments, Permissions & More</p>
                      </div>
                     
                   </div>
 
-                <ChevronRight size={18} className="text-gray-500"/>
+                <Lock size={18} className="text-gray-400"/>
               </div>
 
         </div>
@@ -304,31 +310,16 @@ export default function UserDrawer({
 
         
 
-   <div className="absolute bottom-0 left-0 right-0 bg-white  border-gray-200 shadow-[0_-4px_12px_rgba(0,0,0,0.09)]">
-        <div className="px-3  py-3 pt-4 pb-3">
-          <button
-            className="
-              w-full
-              h-12
-              rounded-md
-              border
-              border-red-400
-              bg-white
-              text-red-500
-              text-sm
-              font-medium
-              transition-colors
-             cursor-pointer
-            "
-            onClick={()=>handleLogout()}
-          >
-            Sign Out
-          </button>
-        </div>
-      </div>
-         
 
     </div>
+
+
+     {Open && (
+                <AuthModal
+                  isOpen={isOpen}
+                  onClose={() => setIsOpen(false)}
+                />
+              )}
 
       
     </>
