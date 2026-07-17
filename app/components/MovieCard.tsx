@@ -10,7 +10,7 @@ const MovieCard = ({
   image,
 }: Props) => {
   return (
-    <div className="w-60 flex-shrink-0">
+    <div className="w-60 flex-shrink-0 cursor-pointer">
       <img
         src={image}
         alt={title}

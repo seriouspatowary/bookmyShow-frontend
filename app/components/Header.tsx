@@ -1,6 +1,6 @@
 import React from 'react'
 
-const Header = async() => {
+export default function Header(){
 
   return (
  
@@ -37,4 +37,3 @@ const Header = async() => {
   )
 }
 
-export default Header

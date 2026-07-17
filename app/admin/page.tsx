@@ -6,19 +6,50 @@ import { useSelector } from "react-redux";
 // BookMyShow brand accent
 const ACCENT = "#F84464";
 
+const DIMENSION_OPTIONS = ["2D", "3D", "IMAX 2D", "IMAX 3D", "4DX"];
+
 interface MovieForm {
   title: string;
   genre: string;
   image: string;
+  description: string;
+  duration: string; // kept as string for the input, converted to Number on submit
+  language: string;
+  dimension: string;
+  releaseDate: string; // yyyy-mm-dd, matches <input type="date">
 }
 
-interface Movie extends MovieForm {
+// Shape sent to / received from the API. Distinct from MovieForm because
+// duration is a real number here, not a controlled-input string.
+interface MoviePayload {
+  title: string;
+  genre: string;
+  image: string;
+  description: string;
+  duration: number;
+  language: string;
+  dimension: string;
+  releaseDate: string;
+}
+
+interface Movie extends MoviePayload {
   _id: string;
 }
 
 type FormErrors = Partial<Record<keyof MovieForm, string>>;
 
-const emptyForm: MovieForm = { title: "", genre: "", image: "" };
+const emptyForm: MovieForm = {
+  title: "",
+  genre: "",
+  image: "",
+  description: "",
+  duration: "",
+  language: "",
+  dimension: DIMENSION_OPTIONS[0],
+  releaseDate: "",
+};
+
+const LIMIT = 10;
 
 export default function AddMoviePage() {
   const [form, setForm] = useState<MovieForm>(emptyForm);
@@ -31,18 +62,29 @@ export default function AddMoviePage() {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // ---- Pagination state ----
+  const [page, setPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [totalCount, setTotalCount] = useState<number>(0);
+
   const accessToken = useSelector(
     (state: any) => state.auth.accessToken
   );
 
-  // ---- Fetch movies (no token required) ----
-  async function fetchMovies() {
+  // ---- Fetch movies (paginated, requires admin token) ----
+  async function fetchMovies(pageNum: number = page) {
     setLoading(true);
     setFetchError("");
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API}/api/movie/`,
-        { method: "GET" }
+        `${process.env.NEXT_PUBLIC_API}/api/movie/admin?page=${pageNum}&limit=${LIMIT}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          credentials: "include",
+        }
       );
       const data = await response.json();
 
@@ -50,11 +92,27 @@ export default function AddMoviePage() {
         throw new Error(data.message || "Failed to load movies");
       }
 
-      // API returns { success: true, data: [...] }
-      const list: Movie[] = Array.isArray(data)
-        ? data
-        : data.data || data.movies || [];
+      // API returns { success: true, data: <paginated payload> }
+      // Handle a few reasonable shapes for the paginated payload so the
+      // frontend keeps working regardless of exact backend key names.
+      const payload = data.data ?? data;
+
+      const list: Movie[] = Array.isArray(payload)
+        ? payload
+        : payload.movies || payload.items || payload.results || [];
+
+      const count: number =
+        payload.total ?? payload.totalCount ?? payload.count ?? list.length;
+
+      const pages: number =
+        payload.totalPages ??
+        payload.total_pages ??
+        Math.max(1, Math.ceil(count / LIMIT));
+
       setMovies(list);
+      setTotalCount(count);
+      setTotalPages(pages);
+      setPage(pageNum);
     } catch (error: any) {
       setFetchError(error.message || "Failed to load movies");
     } finally {
@@ -63,10 +121,19 @@ export default function AddMoviePage() {
   }
 
   useEffect(() => {
-    fetchMovies();
+    fetchMovies(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleChange(e: ChangeEvent<HTMLInputElement>) {
+  function goToPage(next: number) {
+    if (next < 1 || next > totalPages || next === page) return;
+    fetchMovies(next);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handleChange(
+    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) {
     const { name, value } = e.target;
     setForm((f) => ({ ...f, [name]: value }));
     if (errors[name as keyof MovieForm]) {
@@ -81,6 +148,13 @@ export default function AddMoviePage() {
     if (!form.image.trim()) er.image = "Image URL is required";
     else if (!/^https?:\/\/.+/i.test(form.image.trim()))
       er.image = "Enter a valid image URL";
+    if (!form.description.trim()) er.description = "Description is required";
+    if (!form.duration.trim()) er.duration = "Duration is required";
+    else if (!/^\d+$/.test(form.duration.trim()) || Number(form.duration) <= 0)
+      er.duration = "Enter duration in minutes (whole number)";
+    if (!form.language.trim()) er.language = "Language is required";
+    if (!form.dimension.trim()) er.dimension = "Dimension is required";
+    if (!form.releaseDate.trim()) er.releaseDate = "Release date is required";
     setErrors(er);
     return Object.keys(er).length === 0;
   }
@@ -99,6 +173,11 @@ export default function AddMoviePage() {
       title: form.title.trim(),
       genre: form.genre.trim(),
       image: form.image.trim(),
+      description: form.description.trim(),
+      duration: Number(form.duration),
+      language: form.language.trim(),
+      dimension: form.dimension.trim(),
+      releaseDate: form.releaseDate, // yyyy-mm-dd, backend can parse to date
     };
 
     const isEditing = Boolean(editingId);
@@ -132,16 +211,15 @@ export default function AddMoviePage() {
         );
         showToast(`"${payload.title}" updated`);
         setEditingId(null);
+        setForm(emptyForm);
       } else {
-        const newMovie: Movie = {
-          _id: data.data?._id || data._id || String(Date.now()),
-          ...payload,
-        };
-        setMovies((m) => [newMovie, ...m]);
-        showToast(`"${newMovie.title}" added`);
+        // A new movie may land on a different page depending on sort order,
+        // so just refetch the current page from the server to stay in sync.
+        showToast(`"${payload.title}" added`);
+        setForm(emptyForm);
+        fetchMovies(page);
       }
 
-      setForm(emptyForm);
       console.log(data);
     } catch (error: any) {
       alert(error.message);
@@ -153,7 +231,16 @@ export default function AddMoviePage() {
   // ---- Start editing a movie: populate the form ----
   function handleEdit(movie: Movie) {
     setEditingId(movie._id);
-    setForm({ title: movie.title, genre: movie.genre, image: movie.image });
+    setForm({
+      title: movie.title,
+      genre: movie.genre,
+      image: movie.image,
+      description: movie.description || "",
+      duration: movie.duration != null ? String(movie.duration) : "",
+      language: movie.language || "",
+      dimension: movie.dimension || DIMENSION_OPTIONS[0],
+      releaseDate: toDateInputValue(movie.releaseDate),
+    });
     setErrors({});
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -186,9 +273,12 @@ export default function AddMoviePage() {
         throw new Error(data.message || "Failed to delete movie");
       }
 
-      setMovies((m) => m.filter((mv) => mv._id !== id));
       if (editingId === id) handleCancelEdit();
       showToast("Movie removed");
+
+      // If this was the last item on the page (and not page 1), step back a page.
+      const isLastItemOnPage = movies.length === 1 && page > 1;
+      fetchMovies(isLastItemOnPage ? page - 1 : page);
     } catch (error: any) {
       alert(error.message);
     } finally {
@@ -208,11 +298,8 @@ export default function AddMoviePage() {
           <a href="#" style={{ ...styles.navLink, ...styles.navLinkActive }}>
             Movies
           </a>
-          <a href="#" style={styles.navLink}>
-            Events
-          </a>
-          <a href="#" style={styles.navLink}>
-            Theatres
+          <a href="/admin/movies" style={styles.navLink}>
+            Add Cast Members
           </a>
         </nav>
       </header>
@@ -254,6 +341,84 @@ export default function AddMoviePage() {
               onChange={handleChange}
               error={errors.image}
             />
+
+            <div style={{ marginBottom: "1.25rem" }}>
+              <label htmlFor="description" style={styles.label}>
+                Description
+              </label>
+              <textarea
+                id="description"
+                name="description"
+                value={form.description}
+                onChange={handleChange}
+                placeholder="Short synopsis of the movie"
+                rows={4}
+                style={{
+                  ...styles.input,
+                  ...styles.textarea,
+                  borderColor: errors.description ? "#D6294C" : "#DADADA",
+                }}
+              />
+              {errors.description && (
+                <p style={styles.errorText}>{errors.description}</p>
+              )}
+            </div>
+
+            <div style={styles.row2}>
+              <Field
+                label="Duration (minutes)"
+                name="duration"
+                placeholder="e.g. 169"
+                value={form.duration}
+                onChange={handleChange}
+                error={errors.duration}
+                type="number"
+              />
+              <Field
+                label="Language"
+                name="language"
+                placeholder="e.g. English, Hindi"
+                value={form.language}
+                onChange={handleChange}
+                error={errors.language}
+              />
+            </div>
+
+            <div style={styles.row2}>
+              <div style={{ marginBottom: "1.25rem" }}>
+                <label htmlFor="dimension" style={styles.label}>
+                  Dimension
+                </label>
+                <select
+                  id="dimension"
+                  name="dimension"
+                  value={form.dimension}
+                  onChange={handleChange}
+                  style={{
+                    ...styles.input,
+                    borderColor: errors.dimension ? "#D6294C" : "#DADADA",
+                  }}
+                >
+                  {DIMENSION_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+                {errors.dimension && (
+                  <p style={styles.errorText}>{errors.dimension}</p>
+                )}
+              </div>
+              <Field
+                label="Release date"
+                name="releaseDate"
+                placeholder=""
+                value={form.releaseDate}
+                onChange={handleChange}
+                error={errors.releaseDate}
+                type="date"
+              />
+            </div>
 
             <div style={{ display: "flex", gap: "10px" }}>
               <button
@@ -309,6 +474,14 @@ export default function AddMoviePage() {
                   {form.title || "Movie title"}
                 </p>
                 <p style={styles.posterGenre}>{form.genre || "Genre"}</p>
+                <p style={styles.posterMeta}>
+                  {[form.language, form.dimension, form.duration && `${form.duration} min`]
+                    .filter(Boolean)
+                    .join(" · ") || "Language · Dimension · Duration"}
+                </p>
+                {form.releaseDate && (
+                  <p style={styles.posterMeta}>Releases {form.releaseDate}</p>
+                )}
               </div>
             </div>
           </div>
@@ -318,7 +491,7 @@ export default function AddMoviePage() {
         <section style={{ marginTop: "3rem" }}>
           <h2 style={styles.h2}>
             All movies{" "}
-            {!loading && <span style={styles.count}>{movies.length}</span>}
+            {!loading && <span style={styles.count}>{totalCount}</span>}
           </h2>
 
           {loading && <p style={styles.sub}>Loading movies…</p>}
@@ -328,7 +501,7 @@ export default function AddMoviePage() {
               <span>{fetchError}</span>
               <button
                 type="button"
-                onClick={fetchMovies}
+                onClick={() => fetchMovies(page)}
                 style={styles.retryBtn}
               >
                 Retry
@@ -341,48 +514,99 @@ export default function AddMoviePage() {
           )}
 
           {!loading && !fetchError && movies.length > 0 && (
-            <div style={styles.movieGrid}>
-              {movies.map((mv) => (
-                <div key={mv._id} style={styles.movieCard}>
-                  <div style={styles.movieImgWrap}>
-                    <img
-                      src={mv.image}
-                      alt={mv.title}
-                      style={styles.posterImg}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = "none";
-                      }}
-                    />
-                    <div style={styles.cardActions}>
-                      <button
-                        onClick={() => handleEdit(mv)}
-                        style={styles.editBtn}
-                        title="Edit"
-                        type="button"
-                      >
-                        ✎
-                      </button>
-                      <button
-                        onClick={() => handleDelete(mv._id)}
-                        style={styles.deleteBtn}
-                        title="Remove"
-                        type="button"
-                        disabled={deletingId === mv._id}
-                      >
-                        {deletingId === mv._id ? "…" : "×"}
-                      </button>
+            <>
+              <div style={styles.movieGrid}>
+                {movies.map((mv) => (
+                  <div key={mv._id} style={styles.movieCard}>
+                    <div style={styles.movieImgWrap}>
+                      <img
+                        src={mv.image}
+                        alt={mv.title}
+                        style={styles.posterImg}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none";
+                        }}
+                      />
+                      <div style={styles.cardActions}>
+                        <button
+                          onClick={() => handleEdit(mv)}
+                          style={styles.editBtn}
+                          title="Edit"
+                          type="button"
+                        >
+                          ✎
+                        </button>
+                        <button
+                          onClick={() => handleDelete(mv._id)}
+                          style={styles.deleteBtn}
+                          title="Remove"
+                          type="button"
+                          disabled={deletingId === mv._id}
+                        >
+                          {deletingId === mv._id ? "…" : "×"}
+                        </button>
+                      </div>
                     </div>
+                    <p style={styles.posterTitle}>{mv.title}</p>
+                    <p style={styles.posterGenre}>{mv.genre}</p>
+                    <p style={styles.posterMeta}>
+                      {[mv.language, mv.dimension, mv.duration && `${mv.duration} min`]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
                   </div>
-                  <p style={styles.posterTitle}>{mv.title}</p>
-                  <p style={styles.posterGenre}>{mv.genre}</p>
+                ))}
+              </div>
+
+              {/* Pagination controls */}
+              {totalPages > 1 && (
+                <div style={styles.pagination}>
+                  <button
+                    type="button"
+                    onClick={() => goToPage(page - 1)}
+                    disabled={page <= 1}
+                    style={{
+                      ...styles.pageBtn,
+                      opacity: page <= 1 ? 0.4 : 1,
+                      cursor: page <= 1 ? "default" : "pointer",
+                    }}
+                  >
+                    ← Prev
+                  </button>
+
+                  <span style={styles.pageInfo}>
+                    Page {page} of {totalPages}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => goToPage(page + 1)}
+                    disabled={page >= totalPages}
+                    style={{
+                      ...styles.pageBtn,
+                      opacity: page >= totalPages ? 0.4 : 1,
+                      cursor: page >= totalPages ? "default" : "pointer",
+                    }}
+                  >
+                    Next →
+                  </button>
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </section>
       </main>
     </div>
   );
+}
+
+// Normalizes a variety of date formats (ISO string, Date, etc.) into
+// yyyy-mm-dd for the <input type="date"> element.
+function toDateInputValue(value: unknown): string {
+  if (!value) return "";
+  const d = new Date(value as any);
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
 }
 
 interface FieldProps {
@@ -392,9 +616,18 @@ interface FieldProps {
   value: string;
   onChange: (e: ChangeEvent<HTMLInputElement>) => void;
   error?: string;
+  type?: string;
 }
 
-function Field({ label, name, placeholder, value, onChange, error }: FieldProps) {
+function Field({
+  label,
+  name,
+  placeholder,
+  value,
+  onChange,
+  error,
+  type = "text",
+}: FieldProps) {
   return (
     <div style={{ marginBottom: "1.25rem" }}>
       <label htmlFor={name} style={styles.label}>
@@ -403,6 +636,7 @@ function Field({ label, name, placeholder, value, onChange, error }: FieldProps)
       <input
         id={name}
         name={name}
+        type={type}
         value={value}
         onChange={onChange}
         placeholder={placeholder}
@@ -493,6 +727,11 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid #EAEAEA",
     padding: "28px",
   },
+  row2: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "16px",
+  },
   label: {
     display: "block",
     fontSize: "13px",
@@ -508,6 +747,12 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: "6px",
     border: "1px solid #DADADA",
     outline: "none",
+    fontFamily: "inherit",
+    background: "#fff",
+  },
+  textarea: {
+    resize: "vertical",
+    minHeight: "90px",
   },
   errorText: {
     color: "#D6294C",
@@ -609,6 +854,11 @@ const styles: Record<string, CSSProperties> = {
     color: "#8A8A8A",
     margin: "3px 0 0",
   },
+  posterMeta: {
+    fontSize: "11px",
+    color: "#A0A0A0",
+    margin: "3px 0 0",
+  },
   movieGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
@@ -652,5 +902,26 @@ const styles: Record<string, CSSProperties> = {
     fontSize: "16px",
     lineHeight: "24px",
     cursor: "pointer",
+  },
+  pagination: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "18px",
+    marginTop: "28px",
+  },
+  pageBtn: {
+    padding: "8px 16px",
+    background: "#fff",
+    border: "1px solid #DADADA",
+    borderRadius: "6px",
+    fontSize: "13px",
+    fontWeight: 600,
+    color: "#3A3A3A",
+  },
+  pageInfo: {
+    fontSize: "13px",
+    fontWeight: 600,
+    color: "#6B6B6B",
   },
 };

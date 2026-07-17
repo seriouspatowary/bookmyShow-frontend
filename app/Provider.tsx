@@ -5,6 +5,9 @@ import { PersistGate } from "redux-persist/integration/react";
 
 import { store, persistor } from "@/app/redux/store/store";
 import AuthInitializer from "./AuthInitializer";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const queryClient = new QueryClient()
 
 export default function Providers({
   children,
@@ -12,11 +15,13 @@ export default function Providers({
   children: React.ReactNode;
 }) {
   return (
-    <Provider store={store}>
+    <QueryClientProvider client={queryClient}>
+      <Provider store={store}>
       <PersistGate loading={null} persistor={persistor}>
         <AuthInitializer />
         {children}
       </PersistGate>
     </Provider>
+    </QueryClientProvider>
   );
 }

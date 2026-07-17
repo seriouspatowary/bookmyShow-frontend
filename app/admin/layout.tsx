@@ -3,6 +3,7 @@
 import { useSelector } from "react-redux";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import AuthInitializer from "../AuthInitializer";
 
 export default function AdminLayout({
   children,
@@ -30,5 +31,8 @@ export default function AdminLayout({
     return null;
   }
 
-  return <>{children}</>;
+  return <>
+   <AuthInitializer />
+    {children}
+  </>;
 }
