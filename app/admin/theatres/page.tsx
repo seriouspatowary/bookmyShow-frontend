@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, ChangeEvent, FormEvent, CSSProperties } from "react";
+import React, { useState, useEffect, useRef, ChangeEvent, FormEvent, CSSProperties } from "react";
 import { useSelector } from "react-redux";
 import AdminNavbar from "@/app/components/admin/AdminNavbar";
 
@@ -14,8 +14,20 @@ interface TheatreForm {
   contactNumber: string;
 }
 
+interface Screen {
+  _id: string;
+  name: string;
+  theatreId: string;
+  totalSeats: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 interface Theatre extends TheatreForm {
   _id: string;
+  screens: Screen[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 type FormErrors = Partial<Record<keyof TheatreForm, string>>;
@@ -27,8 +39,18 @@ interface ScreenForm {
 
 type ScreenErrors = Partial<Record<keyof ScreenForm, string>>;
 
-const emptyScreenForm: ScreenForm = { name: "", totalSeats: "" };
+// A screen row inside the "edit theatre" form. `_id` present = existing
+// screen being updated, absent = a new screen being added as part of the
+// same update request.
+interface EditScreenForm {
+  _id?: string;
+  name: string;
+  totalSeats: string;
+}
 
+type EditScreenErrors = Partial<Record<"name" | "totalSeats", string>>;
+
+const emptyScreenForm: ScreenForm = { name: "", totalSeats: "" };
 
 const emptyForm: TheatreForm = {
   name: "",
@@ -46,6 +68,7 @@ export default function AddTheatrePage() {
   const [toast, setToast] = useState<string>("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [fetchError, setFetchError] = useState<string>("");
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -57,11 +80,15 @@ export default function AddTheatrePage() {
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalCount, setTotalCount] = useState<number>(0);
 
-  // ---- Add-screen state (inline form per theatre card) ----
+  // ---- Add-screen state (inline form per theatre card, outside edit mode) ----
   const [screenFormForId, setScreenFormForId] = useState<string | null>(null); // which card has the form open
   const [screenForm, setScreenForm] = useState<ScreenForm>(emptyScreenForm);
   const [screenErrors, setScreenErrors] = useState<ScreenErrors>({});
   const [screenSubmitting, setScreenSubmitting] = useState<boolean>(false);
+
+  // ---- Screens editable as part of the "edit theatre" form ----
+  const [editScreens, setEditScreens] = useState<EditScreenForm[]>([]);
+  const [editScreenErrors, setEditScreenErrors] = useState<Record<number, EditScreenErrors>>({});
 
   const accessToken = useSelector((state: any) => state.auth.accessToken);
 
@@ -74,8 +101,36 @@ export default function AddTheatrePage() {
   }, [searchInput]);
 
   // ---- Fetch theatres (server-side search + pagination) ----
-  async function fetchTheatres(pageNum: number = 1, searchTerm: string = search) {
-    setLoading(true);
+  // A single in-flight request is tracked via AbortController. Any new call
+  // to fetchTheatres (from the search effect, pagination clicks, or a
+  // retry button) aborts whatever request is currently pending first. That
+  // means:
+  //   1. We never have two overlapping requests racing to update state.
+  //   2. A stale/slow response can't clobber a newer one.
+  //   3. React StrictMode's dev-only double-invoke of effects results in the
+  //      first request being aborted immediately instead of actually
+  //      hitting the network twice.
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  async function fetchTheatres(
+    pageNum: number = 1,
+    searchTerm: string = search,
+    options: { silent?: boolean } = {}
+  ) {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    // `silent` is used for refetches that happen right after an add/update/
+    // delete — the list is already on screen and we just want to sync it
+    // with the server, not blank it out and show a loading state. That
+    // blanking is what made these actions feel like a full page refresh.
+    const silent = options.silent ?? false;
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setFetchError("");
     try {
       const params = new URLSearchParams({
@@ -90,6 +145,7 @@ export default function AddTheatrePage() {
           method: "GET",
           headers: { Authorization: `Bearer ${accessToken}` },
           credentials: "include",
+          signal: controller.signal,
         }
       );
       const data = await response.json();
@@ -101,9 +157,9 @@ export default function AddTheatrePage() {
       // Falls back to a couple of alternate shapes so this doesn't break
       // if the backend key names shift slightly.
       const payload = data.data ?? data;
-      const list: Theatre[] = Array.isArray(payload)
-        ? payload
-        : payload.theatres || payload.items || payload.results || [];
+      const list: Theatre[] = (
+        Array.isArray(payload) ? payload : payload.theatres || payload.items || payload.results || []
+      ).map((t: any) => ({ ...t, screens: t.screens ?? [] }));
 
       const pagination = payload.pagination ?? payload;
       const pages: number =
@@ -116,23 +172,34 @@ export default function AddTheatrePage() {
       setTotalCount(count);
       setPage(pageNum);
     } catch (error: any) {
-      setFetchError(error.message || "Failed to load theatres");
+      if (error?.name === "AbortError") return; // superseded by a newer request, ignore
+      // A background refresh failing quietly is fine — the on-screen data
+      // is still whatever the mutation optimistically implies. Only surface
+      // an error banner for user-driven (non-silent) loads.
+      if (!silent) setFetchError(error.message || "Failed to load theatres");
     } finally {
-      setLoading(false);
+      if (abortControllerRef.current === controller) {
+        if (silent) setRefreshing(false);
+        else setLoading(false);
+      }
     }
   }
 
-  // Initial load
-  useEffect(() => {
-    fetchTheatres(1, "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Re-fetch page 1 whenever the debounced search term changes
+  // Single source of truth for loading the list: it runs on mount (since
+  // `search` starts at "") and again whenever the debounced search term
+  // changes. There is intentionally no separate "initial load" effect —
+  // having both an on-mount effect AND a search-effect (with `search`
+  // starting at "") was firing two requests back-to-back on every page
+  // load, which was the "called so many times" issue.
   useEffect(() => {
     fetchTheatres(1, search);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
+
+  // Cancel any in-flight request if the component unmounts mid-fetch.
+  useEffect(() => {
+    return () => abortControllerRef.current?.abort();
+  }, []);
 
   function goToPage(next: number) {
     if (next < 1 || next > totalPages || next === page) return;
@@ -165,19 +232,77 @@ export default function AddTheatrePage() {
     setTimeout(() => setToast(""), 2500);
   }
 
+  // ---- Screens management inside the edit form ----
+  function addEditScreenRow() {
+    setEditScreens((rows) => [...rows, { name: "", totalSeats: "" }]);
+  }
+
+  function removeEditScreenRow(index: number) {
+    setEditScreens((rows) => rows.filter((_, i) => i !== index));
+    setEditScreenErrors((errs) => {
+      const next = { ...errs };
+      delete next[index];
+      return next;
+    });
+  }
+
+  function updateEditScreenField(index: number, field: keyof EditScreenForm, value: string) {
+    setEditScreens((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, [field]: value } : row))
+    );
+    setEditScreenErrors((errs) => {
+      if (!errs[index]?.[field as "name" | "totalSeats"]) return errs;
+      return { ...errs, [index]: { ...errs[index], [field]: "" } };
+    });
+  }
+
+  function validateEditScreens(): boolean {
+    const allErrors: Record<number, EditScreenErrors> = {};
+    let valid = true;
+    editScreens.forEach((row, i) => {
+      const rowErrors: EditScreenErrors = {};
+      if (!row.name.trim()) rowErrors.name = "Screen name is required";
+      if (!row.totalSeats.trim()) rowErrors.totalSeats = "Total seats is required";
+      else if (!/^\d+$/.test(row.totalSeats.trim()) || Number(row.totalSeats) <= 0)
+        rowErrors.totalSeats = "Enter a whole number greater than 0";
+      if (Object.keys(rowErrors).length > 0) {
+        allErrors[i] = rowErrors;
+        valid = false;
+      }
+    });
+    setEditScreenErrors(allErrors);
+    return valid;
+  }
+
   // ---- Add or update theatre ----
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!validate()) return;
+    const isEditing = Boolean(editingId);
 
-    const payload = {
+    const isFormValid = validate();
+    const areScreensValid = isEditing ? validateEditScreens() : true;
+    if (!isFormValid || !areScreensValid) return;
+
+    const payload: Record<string, any> = {
       name: form.name.trim(),
       address: form.address.trim(),
       city: form.city.trim(),
       contactNumber: form.contactNumber.trim(),
     };
 
-    const isEditing = Boolean(editingId);
+    // Screen updates ride along with the theatre update request. Rows that
+    // already have an `_id` are existing screens being edited; rows without
+    // one are new screens being created alongside the update. Adjust this
+    // shape to match whatever the updated /api/theatre/update endpoint
+    // expects once it's finalized.
+    if (isEditing) {
+      payload.screens = editScreens.map((row) => ({
+        ...(row._id ? { _id: row._id } : {}),
+        name: row.name.trim(),
+        totalSeats: Number(row.totalSeats),
+      }));
+    }
+
     // NOTE: only /api/theatre/add and /api/theatre (GET) were specified.
     // Update/delete below assume the same REST convention as the movie
     // endpoints — adjust these two URLs if your backend differs.
@@ -203,18 +328,23 @@ export default function AddTheatrePage() {
       }
 
       if (isEditing) {
-        setTheatres((t) =>
-          t.map((th) => (th._id === editingId ? { ...th, ...payload } : th))
-        );
         showToast(`"${payload.name}" updated`);
         setEditingId(null);
         setForm(emptyForm);
+        setEditScreens([]);
+        setEditScreenErrors({});
+        // Screens (including any newly added ones with server-generated
+        // ids) come back from the update response in the ideal case, but
+        // refetching keeps everything — seat counts, new screen ids, etc —
+        // reliably in sync regardless of what the update endpoint returns.
+        // Silent: the list stays on screen, it just gets synced in place.
+        fetchTheatres(page, search, { silent: true });
       } else {
         // A new theatre may land on a different page/search result depending
         // on how the backend sorts, so just refetch page 1 to stay in sync.
         showToast(`"${payload.name}" added`);
         setForm(emptyForm);
-        fetchTheatres(1, search);
+        fetchTheatres(1, search, { silent: true });
       }
     } catch (error: any) {
       alert(error.message);
@@ -232,6 +362,17 @@ export default function AddTheatrePage() {
       contactNumber: theatre.contactNumber,
     });
     setErrors({});
+    setEditScreens(
+      (theatre.screens ?? []).map((s) => ({
+        _id: s._id,
+        name: s.name,
+        totalSeats: String(s.totalSeats),
+      }))
+    );
+    setEditScreenErrors({});
+    // Close the standalone quick-add-screen form if it happened to be open
+    // for this (or any other) card, since screens are now edited inline.
+    setScreenFormForId(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -239,6 +380,8 @@ export default function AddTheatrePage() {
     setEditingId(null);
     setForm(emptyForm);
     setErrors({});
+    setEditScreens([]);
+    setEditScreenErrors({});
   }
 
   // ---- Delete theatre ----
@@ -264,7 +407,7 @@ export default function AddTheatrePage() {
 
       // If this was the last item on the page (and not page 1), step back a page.
       const isLastItemOnPage = theatres.length === 1 && page > 1;
-      fetchTheatres(isLastItemOnPage ? page - 1 : page, search);
+      fetchTheatres(isLastItemOnPage ? page - 1 : page, search, { silent: true });
     } catch (error: any) {
       alert(error.message);
     } finally {
@@ -272,7 +415,7 @@ export default function AddTheatrePage() {
     }
   }
 
-  // ---- Add screen (inline per-theatre form) ----
+  // ---- Add screen (inline per-theatre quick-add form, outside edit mode) ----
   function toggleScreenForm(theatreId: string) {
     if (screenFormForId === theatreId) {
       setScreenFormForId(null);
@@ -332,6 +475,7 @@ export default function AddTheatrePage() {
       showToast(`"${payload.name}" added to screens`);
       setScreenFormForId(null);
       setScreenForm(emptyScreenForm);
+      fetchTheatres(page, search, { silent: true });
     } catch (error: any) {
       alert(error.message);
     } finally {
@@ -348,7 +492,7 @@ export default function AddTheatrePage() {
           <h1 style={styles.h1}>{editingId ? "Edit theatre" : "Add a theatre"}</h1>
           <p style={styles.sub}>
             {editingId
-              ? "Update the details below and save your changes."
+              ? "Update the details and screens below, then save your changes."
               : "Fill in the details below to list a new theatre on BookMyShow."}
           </p>
         </div>
@@ -391,7 +535,66 @@ export default function AddTheatrePage() {
               />
             </div>
 
-            <div style={{ display: "flex", gap: "10px" }}>
+            {/* Screens — only editable as part of updating an existing theatre */}
+            {editingId && (
+              <div style={styles.screensBlock}>
+                <div style={styles.screensHeaderRow}>
+                  <p style={styles.label}>Screens</p>
+                  <button type="button" style={styles.addScreenRowBtn} onClick={addEditScreenRow}>
+                    + Add screen
+                  </button>
+                </div>
+
+                {editScreens.length === 0 && (
+                  <p style={styles.sub}>No screens yet. Add one above.</p>
+                )}
+
+                {editScreens.map((row, index) => (
+                  <div key={row._id ?? `new-${index}`} style={styles.screenFormRow}>
+                    <div style={{ flex: 1 }}>
+                      <input
+                        type="text"
+                        value={row.name}
+                        onChange={(e) => updateEditScreenField(index, "name", e.target.value)}
+                        placeholder="Screen name, e.g. Screen 1"
+                        style={{
+                          ...styles.input,
+                          borderColor: editScreenErrors[index]?.name ? "#D6294C" : "#DADADA",
+                        }}
+                      />
+                      {editScreenErrors[index]?.name && (
+                        <p style={styles.errorText}>{editScreenErrors[index]?.name}</p>
+                      )}
+                    </div>
+                    <div style={{ width: "140px" }}>
+                      <input
+                        type="number"
+                        value={row.totalSeats}
+                        onChange={(e) => updateEditScreenField(index, "totalSeats", e.target.value)}
+                        placeholder="Total seats"
+                        style={{
+                          ...styles.input,
+                          borderColor: editScreenErrors[index]?.totalSeats ? "#D6294C" : "#DADADA",
+                        }}
+                      />
+                      {editScreenErrors[index]?.totalSeats && (
+                        <p style={styles.errorText}>{editScreenErrors[index]?.totalSeats}</p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeEditScreenRow(index)}
+                      style={styles.removeScreenBtn}
+                      title="Remove screen"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: "10px", marginTop: editingId ? "18px" : 0 }}>
               <button
                 type="submit"
                 style={{ ...styles.submitBtn, opacity: submitting ? 0.7 : 1 }}
@@ -425,6 +628,11 @@ export default function AddTheatrePage() {
                 {[form.city, form.contactNumber].filter(Boolean).join(" · ") ||
                   "City · Contact number"}
               </p>
+              {editingId && (
+                <p style={styles.previewMeta}>
+                  {editScreens.length} screen{editScreens.length === 1 ? "" : "s"}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -435,6 +643,7 @@ export default function AddTheatrePage() {
             <h2 style={styles.h2}>
               All theatres{" "}
               {!loading && <span style={styles.count}>{totalCount}</span>}
+              {refreshing && <span style={styles.refreshingTag}>syncing…</span>}
             </h2>
             <input
               type="text"
@@ -477,6 +686,11 @@ export default function AddTheatrePage() {
                         <p style={styles.previewMeta}>{th.address}</p>
                         <p style={styles.previewMeta}>
                           {[th.city, th.contactNumber].filter(Boolean).join(" · ")}
+                        </p>
+                        <p style={styles.previewMeta}>
+                          {th.screens.length} screen{th.screens.length === 1 ? "" : "s"}
+                          {th.screens.length > 0 &&
+                            ` · ${th.screens.reduce((sum, s) => sum + s.totalSeats, 0)} seats`}
                         </p>
                       </div>
                       <div style={styles.theatreActions}>
@@ -661,6 +875,12 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: "10px",
     padding: "2px 9px",
   },
+  refreshingTag: {
+    fontSize: "11px",
+    fontWeight: 600,
+    color: "#8A8A8A",
+    marginLeft: "6px",
+  },
   grid: {
     display: "grid",
     gridTemplateColumns: "1.3fr 0.7fr",
@@ -836,6 +1056,41 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: "6px",
     cursor: "pointer",
     whiteSpace: "nowrap",
+  },
+  screensBlock: {
+    borderTop: "1px solid #EAEAEA",
+    marginTop: "1.25rem",
+    paddingTop: "1.1rem",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  },
+  screensHeaderRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  addScreenRowBtn: {
+    padding: "6px 10px",
+    background: "#fff",
+    border: `1px solid ${ACCENT}`,
+    color: ACCENT,
+    fontWeight: 600,
+    fontSize: "12px",
+    borderRadius: "6px",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  removeScreenBtn: {
+    width: "44px",
+    height: "44px",
+    borderRadius: "6px",
+    border: "1px solid #DADADA",
+    background: "#fff",
+    color: "#B0203A",
+    fontSize: "18px",
+    cursor: "pointer",
+    flexShrink: 0,
   },
   listHeaderRow: {
     display: "flex",
