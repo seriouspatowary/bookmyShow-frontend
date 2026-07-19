@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { X } from "lucide-react";
 import { useDispatch } from "react-redux";
-import { loginSuccess } from "../redux/slice/authSlice";
+import { loginSuccess, logout } from "../redux/slice/authSlice";
 import { access } from "fs";
 
 type AuthModalProps = {
@@ -65,7 +65,7 @@ export default function AuthModal({
        }
 
      
-
+        dispatch(logout());
         dispatch(loginSuccess({
             user:data.user,
             accessToken : data.accessToken
