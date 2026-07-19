@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, ChangeEvent, FormEvent, CSSProperties } from "react";
 import { useSelector } from "react-redux";
+import AdminNavbar from "../components/admin/AdminNavbar";
 
 // BookMyShow brand accent
 const ACCENT = "#F84464";
@@ -288,21 +289,9 @@ export default function AddMoviePage() {
 
   return (
     <div style={styles.page}>
-      {/* Top bar */}
-      <header style={styles.header}>
-        <div style={styles.logo}>
-          book<span style={{ color: ACCENT }}>my</span>show
-          <span style={styles.adminTag}>admin</span>
-        </div>
-        <nav style={styles.nav}>
-          <a href="#" style={{ ...styles.navLink, ...styles.navLinkActive }}>
-            Movies
-          </a>
-          <a href="/admin/movies" style={styles.navLink}>
-            Add Cast Members
-          </a>
-        </nav>
-      </header>
+       
+        
+       <AdminNavbar/>
 
       <main style={styles.main}>
         <div style={styles.titleRow}>

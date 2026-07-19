@@ -1,5 +1,6 @@
 "use client";
 
+import AdminNavbar from "@/app/components/admin/AdminNavbar";
 import React, { useState, useEffect, ChangeEvent, FormEvent, CSSProperties } from "react";
 import { useSelector } from "react-redux";
 
@@ -411,23 +412,7 @@ async function fetchCrew(movieId: string) {
   return (
     <div style={styles.page}>
       {/* Top bar */}
-      <header style={styles.header}>
-        <div style={styles.logo}>
-          book<span style={{ color: ACCENT }}>my</span>show
-          <span style={styles.adminTag}>admin</span>
-        </div>
-        <nav style={styles.nav}>
-          <a href="/admin" style={styles.navLink}>
-            Movies
-          </a>
-          <a href="#" style={{ ...styles.navLink, ...styles.navLinkActive }}>
-            Cast &amp; Crew
-          </a>
-          <a href="#" style={styles.navLink}>
-            Theatres
-          </a>
-        </nav>
-      </header>
+      <AdminNavbar/>
 
       <main style={styles.main}>
         <div style={styles.titleRow}>
