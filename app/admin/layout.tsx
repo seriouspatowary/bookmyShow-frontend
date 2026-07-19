@@ -18,21 +18,31 @@ export default function AdminLayout({
     (state:any)=>state.auth
   );
 
+useEffect(()=>{
 
-  useEffect(()=>{
+ console.log("ADMIN AUTH CHECK:", {
+    user,
+    isAuthenticated,
+    initialized
+ });
 
-     if(!initialized) return;
+ if(!initialized) return;
 
-    if(!isAuthenticated){
-      router.replace("/login");
-      return;
-    }
+ if(!isAuthenticated){
+    router.replace("/login");
+    return;
+ }
 
-    if(user?.role !== "administrator"){
-      router.replace("/");
-    }
+ if(user?.role !== "administrator"){
+    router.replace("/");
+ }
 
-  },[user,isAuthenticated, initialized, router]);
+},[
+ initialized,
+ isAuthenticated,
+ user,
+ router
+]);
 
 
 if(!initialized){
