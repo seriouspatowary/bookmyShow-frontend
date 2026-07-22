@@ -18,7 +18,7 @@ const NAV_LINKS: NavLink[] = [
   { label: "Movies", href: "/admin" },
   { label: "Cast & Crew", href: "/admin/movies" },
   { label: "Theatres", href: "/admin/theatres" },
-  // { label: "Shows", href: "/admin/shows" },
+  { label: "Shows", href: "/admin/manage-shows" },
 ];
 
 interface AdminNavbarProps {

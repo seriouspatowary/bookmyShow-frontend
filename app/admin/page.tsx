@@ -1,8 +1,11 @@
 "use client"
 
 import React, { useState, useEffect, ChangeEvent, FormEvent, CSSProperties } from "react";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import AdminNavbar from "../components/admin/AdminNavbar";
+import { restoreAuth } from "../lib/auth";
+import { loginSuccess, logout } from "../redux/slice/authSlice";
+import { apiFetch } from "../lib/apiFetch";
 
 // BookMyShow brand accent
 const ACCENT = "#F84464";
@@ -70,15 +73,18 @@ export default function AddMoviePage() {
 
   const accessToken = useSelector(
     (state: any) => state.auth.accessToken
+    
   );
+
+   const dispatch = useDispatch();
 
   // ---- Fetch movies (paginated, requires admin token) ----
   async function fetchMovies(pageNum: number = page) {
     setLoading(true);
     setFetchError("");
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API}/api/movie/admin?page=${pageNum}&limit=${LIMIT}`,
+      const response = await apiFetch(
+        `/api/movie/admin?page=${pageNum}&limit=${LIMIT}`,
         {
           method: "GET",
           headers: {
@@ -87,8 +93,25 @@ export default function AddMoviePage() {
           credentials: "include",
         }
       );
-      const data = await response.json();
+      let data = await response.json();
+          
+      if (data.code === "TOKEN_EXPIRED") {
+        const res = await restoreAuth();
 
+        if (!res.success) {
+          // Refresh token also expired
+          dispatch(logout());
+          return;
+        }
+
+        dispatch(
+          loginSuccess({
+            user: res.user,
+            accessToken: res.accessToken,
+          })
+        );
+      }
+      
       if (!response.ok) {
         throw new Error(data.message || "Failed to load movies");
       }
@@ -166,68 +189,71 @@ export default function AddMoviePage() {
   }
 
   // ---- Add or update movie ----
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!validate()) return;
+ async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  e.preventDefault();
+  if (!validate()) return;
 
-    const payload = {
-      title: form.title.trim(),
-      genre: form.genre.trim(),
-      image: form.image.trim(),
-      description: form.description.trim(),
-      duration: Number(form.duration),
-      language: form.language.trim(),
-      dimension: form.dimension.trim(),
-      releaseDate: form.releaseDate, // yyyy-mm-dd, backend can parse to date
-    };
+  const payload = {
+    title: form.title.trim(),
+    genre: form.genre.trim(),
+    image: form.image.trim(),
+    description: form.description.trim(),
+    duration: Number(form.duration),
+    language: form.language.trim(),
+    dimension: form.dimension.trim(),
+    releaseDate: form.releaseDate,
+  };
 
-    const isEditing = Boolean(editingId);
-    const url = isEditing
-      ? `${process.env.NEXT_PUBLIC_API}/api/movie/update/${editingId}`
-      : `${process.env.NEXT_PUBLIC_API}/api/movie/add`;
+  const isEditing = Boolean(editingId);
 
-    setSubmitting(true);
-    try {
-      const response = await fetch(url, {
-        method: isEditing ? "PUT" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
+  const url = isEditing
+    ? `/api/movie/update/${editingId}`
+    : `/api/movie/add`;
 
-      const data = await response.json();
+  setSubmitting(true);
 
-      if (!response.ok) {
-        throw new Error(data.message || "Something went wrong");
-      }
+  try {
+    const response = await apiFetch(url, {
+      method: isEditing ? "PUT" : "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
 
-      if (isEditing) {
-        setMovies((m) =>
-          m.map((mv) =>
-            mv._id === editingId ? { ...mv, ...payload } : mv
-          )
-        );
-        showToast(`"${payload.title}" updated`);
-        setEditingId(null);
-        setForm(emptyForm);
-      } else {
-        // A new movie may land on a different page depending on sort order,
-        // so just refetch the current page from the server to stay in sync.
-        showToast(`"${payload.title}" added`);
-        setForm(emptyForm);
-        fetchMovies(page);
-      }
+    const data = await response.json();
 
-      console.log(data);
-    } catch (error: any) {
-      alert(error.message);
-    } finally {
-      setSubmitting(false);
+    if (!response.ok) {
+      throw new Error(data.message || "Something went wrong");
     }
+
+    if (isEditing) {
+      setMovies((m) =>
+        m.map((mv) =>
+          mv._id === editingId ? { ...mv, ...payload } : mv
+        )
+      );
+
+      showToast(`"${payload.title}" updated`);
+      setEditingId(null);
+      setForm(emptyForm);
+
+    } else {
+
+      showToast(`"${payload.title}" added`);
+      setForm(emptyForm);
+      fetchMovies(page);
+    }
+
+    console.log(data);
+
+  } catch (error: any) {
+    alert(error.message);
+
+  } finally {
+    setSubmitting(false);
   }
+}
 
   // ---- Start editing a movie: populate the form ----
   function handleEdit(movie: Movie) {

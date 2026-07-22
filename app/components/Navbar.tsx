@@ -9,6 +9,7 @@ import { useSelector } from "react-redux";
 import { RootState } from "@/app/redux/store/store";
 import UserDrawer from "./UserDrawer";
 import NormalDrawer from "./UnauthDrawer";
+import Link from "next/link";
 
 
 const Navbar = () => {
@@ -30,6 +31,7 @@ const Navbar = () => {
    
    <div className="h-16 flex items-center justify-between px-30">
        <div className="flex items-center gap-6">
+           <Link href="/">
                <Image
                 src="/logo.png"
                 alt="BookMyShow"
@@ -38,7 +40,7 @@ const Navbar = () => {
                 loading="eager"
                 style={{ width: 'auto', height: 'auto' }}
                 />
-
+            </Link>
 
               <div className="flex items-center gap-2 border border-gray-300 rounded-sm px-2 py-2 w-[500px] m-2">
                 <Search size={18} className="text-gray-500" />

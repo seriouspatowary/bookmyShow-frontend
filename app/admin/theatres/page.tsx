@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, ChangeEvent, FormEvent, CSSProperties } from "react";
 import { useSelector } from "react-redux";
 import AdminNavbar from "@/app/components/admin/AdminNavbar";
+import { apiFetch } from "@/app/lib/apiFetch";
 
 // BookMyShow brand accent
 const ACCENT = "#F84464";
@@ -19,9 +20,22 @@ interface Screen {
   name: string;
   theatreId: string;
   totalSeats: number;
+  layout?: Record<string, { seatCount: number; seatType: string }>; // added
   createdAt?: string;
   updatedAt?: string;
 }
+
+interface SeatRowForm {
+  label: string;
+  seatCount: string;
+  seatType: string;
+}
+type SeatRowErrors = Partial<Record<"label" | "seatCount", string>>;
+
+const SEAT_TYPES = ["SILVER", "GOLD", "PLATINUM", "DIAMOND", "RECLINER"];
+
+
+
 
 interface Theatre extends TheatreForm {
   _id: string;
@@ -90,7 +104,253 @@ export default function AddTheatrePage() {
   const [editScreens, setEditScreens] = useState<EditScreenForm[]>([]);
   const [editScreenErrors, setEditScreenErrors] = useState<Record<number, EditScreenErrors>>({});
 
+
+  type SeatLayoutMap = Record<string, { seatCount: number; seatType: string }>;
+
+  const [seatManageForId, setSeatManageForId] = useState<string | null>(null); // screenId being configured
+  const [seatRows, setSeatRows] = useState<SeatRowForm[]>([]);
+  const [seatRowErrors, setSeatRowErrors] = useState<Record<number, SeatRowErrors>>({});
+  const [seatFormError, setSeatFormError] = useState<string>(""); // e.g. seat-count mismatch
+  const [seatSubmitting, setSeatSubmitting] = useState<boolean>(false);
+
+
+  // new:
+  const [seatManageMode, setSeatManageMode] = useState<"view" | "add" | "edit">("add");
+  const [seatManageLoading, setSeatManageLoading] = useState<boolean>(false);
+  const [seatManageError, setSeatManageError] = useState<string>("");
+  const [seatViewLayout, setSeatViewLayout] = useState<SeatLayoutMap | null>(null);
+  const [seatDeleting, setSeatDeleting] = useState<boolean>(false);
+
   const accessToken = useSelector((state: any) => state.auth.accessToken);
+
+
+
+
+  // A, B, ..., Z, AA, AB, ... so you never run out of row labels.
+  function labelForIndex(i: number): string {
+    let n = i;
+    let label = "";
+    do {
+      label = String.fromCharCode(65 + (n % 26)) + label;
+      n = Math.floor(n / 26) - 1;
+    } while (n >= 0);
+    return label;
+  }
+
+  async function openSeatManager(screen: Screen) {
+    if (seatManageForId === screen._id) {
+      closeSeatManager();
+      return;
+    }
+
+    setSeatManageForId(screen._id);
+    setScreenFormForId(null); // close the quick-add-screen form if open
+    setSeatRows([]);
+    setSeatRowErrors({});
+    setSeatFormError("");
+    setSeatViewLayout(null);
+    setSeatManageError("");
+    setSeatManageLoading(true);
+
+    try {
+      const response = await apiFetch(`/api/theatre/get-seats/${screen._id}`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to load seat layout");
+      }
+
+      const layout: SeatLayoutMap = data.data?.layout ?? {};
+      if (Object.keys(layout).length > 0) {
+        setSeatViewLayout(layout);
+        setSeatManageMode("view");
+      } else {
+        setSeatManageMode("add");
+        setSeatRows([{ label: "A", seatCount: "", seatType: SEAT_TYPES[0] }]);
+      }
+    } catch (error: any) {
+      // Couldn't confirm what's on the server — fall back to the add form
+      // rather than leaving the user stuck, but surface the error.
+      setSeatManageError(error.message || "Failed to load seat layout");
+      setSeatManageMode("add");
+      setSeatRows([{ label: "A", seatCount: "", seatType: SEAT_TYPES[0] }]);
+    } finally {
+      setSeatManageLoading(false);
+    }
+  }
+
+  function closeSeatManager() {
+    setSeatManageForId(null);
+    setSeatManageMode("add");
+    setSeatRows([]);
+    setSeatRowErrors({});
+    setSeatFormError("");
+    setSeatViewLayout(null);
+    setSeatManageError("");
+  }
+
+  function startEditSeats() {
+    if (!seatViewLayout) return;
+    setSeatRows(
+      Object.entries(seatViewLayout).map(([label, v]) => ({
+        label,
+        seatCount: String(v.seatCount),
+        seatType: v.seatType,
+      }))
+    );
+    setSeatRowErrors({});
+    setSeatFormError("");
+    setSeatManageMode("edit");
+  }
+
+  function cancelSeatFormEdit() {
+    // Editing an existing layout -> go back to the view. Adding a brand new
+    // one -> there's nothing to go "back" to, so just close.
+    if (seatViewLayout) {
+      setSeatManageMode("view");
+      setSeatRows([]);
+      setSeatRowErrors({});
+      setSeatFormError("");
+    } else {
+      closeSeatManager();
+    }
+  }
+  function addSeatRow() {
+    setSeatRows((rows) => [
+      ...rows,
+      { label: labelForIndex(rows.length), seatCount: "", seatType: SEAT_TYPES[0] },
+    ]);
+  }
+
+  function removeSeatRow(index: number) {
+    setSeatRows((rows) => rows.filter((_, i) => i !== index));
+    setSeatRowErrors((errs) => {
+      const next = { ...errs };
+      delete next[index];
+      return next;
+    });
+  }
+
+  function updateSeatRow(index: number, field: keyof SeatRowForm, value: string) {
+    setSeatRows((rows) => rows.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+    setSeatRowErrors((errs) => {
+      if (!errs[index]?.[field as "label" | "seatCount"]) return errs;
+      return { ...errs, [index]: { ...errs[index], [field]: "" } };
+    });
+    setSeatFormError("");
+  }
+
+  function validateSeatRows(totalSeats: number): boolean {
+    const allErrors: Record<number, SeatRowErrors> = {};
+    let valid = true;
+    const seenLabels = new Set<string>();
+
+    seatRows.forEach((row, i) => {
+      const rowErrors: SeatRowErrors = {};
+      const label = row.label.trim().toUpperCase();
+      if (!label) rowErrors.label = "Row label is required";
+      else if (seenLabels.has(label)) rowErrors.label = "Row labels must be unique";
+      else seenLabels.add(label);
+
+      if (!row.seatCount.trim()) rowErrors.seatCount = "Seat count is required";
+      else if (!/^\d+$/.test(row.seatCount.trim()) || Number(row.seatCount) <= 0)
+        rowErrors.seatCount = "Enter a whole number greater than 0";
+
+      if (Object.keys(rowErrors).length > 0) {
+        allErrors[i] = rowErrors;
+        valid = false;
+      }
+    });
+
+    setSeatRowErrors(allErrors);
+    if (!valid) return false;
+
+    if (seatRows.length === 0) {
+      setSeatFormError("Add at least one row");
+      return false;
+    }
+
+    // Keep the layout honest against the screen's declared capacity.
+    const allocated = seatRows.reduce((sum, r) => sum + (Number(r.seatCount) || 0), 0);
+    if (allocated !== totalSeats) {
+      setSeatFormError(
+        `Rows add up to ${allocated} seats, but this screen has ${totalSeats}. Adjust the counts so they match.`
+      );
+      return false;
+    }
+
+    setSeatFormError("");
+    return true;
+  }
+
+  // NOTE: endpoint assumed — adjust to whatever your backend actually exposes
+  // for saving a screen's seat layout.
+  async function handleSeatSubmit(e: FormEvent<HTMLFormElement>, screen: Screen) {
+    e.preventDefault();
+    if (!validateSeatRows(screen.totalSeats)) return;
+
+    const layout: SeatLayoutMap = {};
+    seatRows.forEach((row) => {
+      layout[row.label.trim().toUpperCase()] = {
+        seatCount: Number(row.seatCount),
+        seatType: row.seatType,
+      };
+    });
+
+    const isEditingSeats = seatManageMode === "edit";
+    const url = isEditingSeats
+      ? `/api/theatre/update-seat/${screen._id}`
+      : `/api/theatre/add-seats`;
+    const payload = isEditingSeats ? { layout } : { screenId: screen._id, layout };
+
+    setSeatSubmitting(true);
+    try {
+      const response = await apiFetch(url, {
+        method: isEditingSeats ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to save seat layout");
+      }
+
+      showToast(`Seat layout saved for "${screen.name}"`);
+      closeSeatManager();
+      fetchTheatres(page, search, { silent: true });
+    } catch (error: any) {
+      alert(error.message);
+    } finally {
+      setSeatSubmitting(false);
+    }
+  }
+
+
+  async function handleDeleteSeatLayout(screen: Screen) {
+    if (!confirm(`Remove the seat layout for "${screen.name}"?`)) return;
+
+    setSeatDeleting(true);
+    try {
+      const response = await apiFetch(`/api/theatre/update-seat/${screen._id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || "Failed to delete seat layout");
+      }
+
+      showToast(`Seat layout removed for "${screen.name}"`);
+      closeSeatManager();
+      fetchTheatres(page, search, { silent: true });
+    } catch (error: any) {
+      alert(error.message);
+    } finally {
+      setSeatDeleting(false);
+    }
+  }
 
   // Debounce the search box so we don't fire a request on every keystroke.
   useEffect(() => {
@@ -139,13 +399,13 @@ export default function AddTheatrePage() {
       });
       if (searchTerm) params.set("search", searchTerm);
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API}/api/theatre?${params.toString()}`,
+      const response = await apiFetch(
+        `/api/theatre?${params.toString()}`,
         {
           method: "GET",
-          headers: { Authorization: `Bearer ${accessToken}` },
-          credentials: "include",
-          signal: controller.signal,
+          headers: {
+            "Content-Type": "application/json"
+          },
         }
       );
       const data = await response.json();
@@ -307,18 +567,16 @@ export default function AddTheatrePage() {
     // Update/delete below assume the same REST convention as the movie
     // endpoints — adjust these two URLs if your backend differs.
     const url = isEditing
-      ? `${process.env.NEXT_PUBLIC_API}/api/theatre/update/${editingId}`
-      : `${process.env.NEXT_PUBLIC_API}/api/theatre/add`;
+      ? `/api/theatre/update/${editingId}`
+      : `/api/theatre/add`;
 
     setSubmitting(true);
     try {
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method: isEditing ? "PUT" : "POST",
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
         },
-        credentials: "include",
         body: JSON.stringify(payload),
       });
 
@@ -390,12 +648,13 @@ export default function AddTheatrePage() {
 
     setDeletingId(id);
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API}/api/theatre/delete/${id}`,
+      const response = await apiFetch(
+        `/api/theatre/delete/${id}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${accessToken}` },
-          credentials: "include",
+          headers: {
+            "Content-Type": "application/json"
+          },
         }
       );
       if (!response.ok) {
@@ -458,13 +717,11 @@ export default function AddTheatrePage() {
 
     setScreenSubmitting(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API}/api/theatre/add-screen`, {
+      const response = await apiFetch(`/api/theatre/add-screen`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
         },
-        credentials: "include",
         body: JSON.stringify(payload),
       });
       const data = await response.json();
@@ -485,7 +742,7 @@ export default function AddTheatrePage() {
 
   return (
     <div style={styles.page}>
-      <AdminNavbar/>
+      <AdminNavbar />
 
       <main style={styles.main}>
         <div style={styles.titleRow}>
@@ -605,8 +862,8 @@ export default function AddTheatrePage() {
                     ? "Saving..."
                     : "Adding..."
                   : editingId
-                  ? "Save changes"
-                  : "Add theatre"}
+                    ? "Save changes"
+                    : "Add theatre"}
               </button>
               {editingId && (
                 <button type="button" style={styles.cancelBtn} onClick={handleCancelEdit}>
@@ -692,6 +949,157 @@ export default function AddTheatrePage() {
                           {th.screens.length > 0 &&
                             ` · ${th.screens.reduce((sum, s) => sum + s.totalSeats, 0)} seats`}
                         </p>
+
+                        {th.screens.length > 0 && (
+                          <div style={styles.screensList}>
+                            {th.screens.map((screen) => (
+                              <div key={screen._id} style={styles.screenRow}>
+                                <div style={styles.screenRowInfo}>
+                                  <span style={styles.screenRowName}>{screen.name}</span>
+                                  <span style={styles.screenRowMeta}>
+                                    {screen.totalSeats} seats
+                                    {screen.layout && Object.keys(screen.layout).length > 0
+                                      ? ` · ${Object.keys(screen.layout).length} row${Object.keys(screen.layout).length === 1 ? "" : "s"
+                                      } configured`
+                                      : " · seats not configured"}
+                                  </span>
+                                </div>
+                                <button type="button" style={styles.manageSeatsBtn} onClick={() => openSeatManager(screen)}>
+                                  {seatManageForId === screen._id ? "Close" : "Manage seats"}
+                                </button>
+                              </div>
+                            ))}
+
+                            {th.screens.map((screen) =>
+                              seatManageForId === screen._id ? (
+                                <div key={`seat-manage-${screen._id}`} style={styles.seatManageWrap}>
+                                  {seatManageLoading && <p style={styles.sub}>Loading seat layout…</p>}
+
+                                  {!seatManageLoading && seatManageError && (
+                                    <p style={styles.errorText}>{seatManageError}</p>
+                                  )}
+
+                                  {/* Existing layout: read-only view with Edit / Delete */}
+                                  {!seatManageLoading && seatManageMode === "view" && seatViewLayout && (
+                                    <div style={styles.seatViewBox}>
+                                      <div style={styles.seatFormHeaderRow}>
+                                        <p style={styles.label}>Seat layout for {screen.name}</p>
+                                        <div style={{ display: "flex", gap: "8px" }}>
+                                          <button type="button" style={styles.addScreenRowBtn} onClick={startEditSeats}>
+                                            Edit
+                                          </button>
+                                          <button
+                                            type="button"
+                                            style={styles.deleteSeatBtn}
+                                            onClick={() => handleDeleteSeatLayout(screen)}
+                                            disabled={seatDeleting}
+                                          >
+                                            {seatDeleting ? "Removing..." : "Delete"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                      <div style={styles.seatViewRows}>
+                                        {Object.entries(seatViewLayout).map(([label, v]) => (
+                                          <div key={label} style={styles.seatViewRow}>
+                                            <span style={styles.seatViewLabel}>Row {label}</span>
+                                            <span style={styles.seatViewMeta}>
+                                              {v.seatCount} seats · {v.seatType.charAt(0) + v.seatType.slice(1).toLowerCase()}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* No layout yet, or editing an existing one */}
+                                  {!seatManageLoading && (seatManageMode === "add" || seatManageMode === "edit") && (
+                                    <form style={styles.seatForm} onSubmit={(e) => handleSeatSubmit(e, screen)} noValidate>
+                                      <div style={styles.seatFormHeaderRow}>
+                                        <p style={styles.label}>
+                                          {seatManageMode === "edit" ? "Edit" : "Add"} seat layout for {screen.name} —{" "}
+                                          {screen.totalSeats} total seats
+                                        </p>
+                                        <button type="button" style={styles.addScreenRowBtn} onClick={addSeatRow}>
+                                          + Add row
+                                        </button>
+                                      </div>
+
+                                      {seatRows.map((row, index) => (
+                                        <div key={index} style={styles.seatRowFields}>
+                                          <div style={{ width: "90px" }}>
+                                            <input
+                                              type="text"
+                                              value={row.label}
+                                              onChange={(e) => updateSeatRow(index, "label", e.target.value)}
+                                              placeholder="Row"
+                                              style={{
+                                                ...styles.input,
+                                                textTransform: "uppercase",
+                                                borderColor: seatRowErrors[index]?.label ? "#D6294C" : "#DADADA",
+                                              }}
+                                            />
+                                            {seatRowErrors[index]?.label && <p style={styles.errorText}>{seatRowErrors[index]?.label}</p>}
+                                          </div>
+                                          <div style={{ width: "120px" }}>
+                                            <input
+                                              type="number"
+                                              value={row.seatCount}
+                                              onChange={(e) => updateSeatRow(index, "seatCount", e.target.value)}
+                                              placeholder="Seat count"
+                                              style={{
+                                                ...styles.input,
+                                                borderColor: seatRowErrors[index]?.seatCount ? "#D6294C" : "#DADADA",
+                                              }}
+                                            />
+                                            {seatRowErrors[index]?.seatCount && (
+                                              <p style={styles.errorText}>{seatRowErrors[index]?.seatCount}</p>
+                                            )}
+                                          </div>
+                                          <div style={{ flex: 1 }}>
+                                            <select
+                                              value={row.seatType}
+                                              onChange={(e) => updateSeatRow(index, "seatType", e.target.value)}
+                                              style={styles.input}
+                                            >
+                                              {SEAT_TYPES.map((t) => (
+                                                <option key={t} value={t}>
+                                                  {t.charAt(0) + t.slice(1).toLowerCase()}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => removeSeatRow(index)}
+                                            style={styles.removeScreenBtn}
+                                            title="Remove row"
+                                          >
+                                            ×
+                                          </button>
+                                        </div>
+                                      ))}
+
+                                      {seatFormError && <p style={styles.errorText}>{seatFormError}</p>}
+
+                                      <div style={{ display: "flex", gap: "10px" }}>
+                                        <button
+                                          type="submit"
+                                          style={{ ...styles.screenSubmitBtn, opacity: seatSubmitting ? 0.7 : 1 }}
+                                          disabled={seatSubmitting}
+                                        >
+                                          {seatSubmitting ? "Saving..." : "Save seat layout"}
+                                        </button>
+                                        <button type="button" style={styles.cancelBtn} onClick={cancelSeatFormEdit}>
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </form>
+                                  )}
+                                </div>
+                              ) : null
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div style={styles.theatreActions}>
                         <button
@@ -1154,4 +1562,83 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: "28px",
     cursor: "pointer",
   },
+
+  screensList: { marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" },
+  screenRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "8px 12px",
+    background: "#F7F7F7",
+    borderRadius: "8px",
+  },
+  screenRowInfo: { display: "flex", flexDirection: "column", gap: "2px" },
+  screenRowName: { fontSize: "0.9rem", fontWeight: 600, color: "#222" },
+  screenRowMeta: { fontSize: "0.8rem", color: "#666" },
+  manageSeatsBtn: {
+    border: `1px solid ${ACCENT}`,
+    color: ACCENT,
+    background: "transparent",
+    borderRadius: "6px",
+    padding: "6px 12px",
+    fontSize: "0.8rem",
+    cursor: "pointer",
+  },
+  seatForm: {
+    marginTop: "8px",
+    padding: "12px",
+    border: "1px solid #EEE",
+    borderRadius: "8px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  },
+  seatFormHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+  seatRowFields: { display: "flex", gap: "8px", alignItems: "flex-start" },
+
+  seatManageWrap: {
+  marginTop: "8px",
+},
+seatViewBox: {
+  padding: "12px",
+  border: "1px solid #EEE",
+  borderRadius: "8px",
+  display: "flex",
+  flexDirection: "column",
+  gap: "10px",
+},
+seatViewRows: {
+  display: "flex",
+  flexDirection: "column",
+  gap: "6px",
+},
+seatViewRow: {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  padding: "8px 12px",
+  background: "#F7F7F7",
+  borderRadius: "8px",
+},
+seatViewLabel: {
+  fontSize: "0.9rem",
+  fontWeight: 600,
+  color: "#222",
+},
+seatViewMeta: {
+  fontSize: "0.8rem",
+  color: "#666",
+},
+deleteSeatBtn: {
+  padding: "6px 10px",
+  background: "#fff",
+  border: "1px solid #D6294C",
+  color: "#D6294C",
+  fontWeight: 600,
+  fontSize: "12px",
+  borderRadius: "6px",
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+},
 };
+

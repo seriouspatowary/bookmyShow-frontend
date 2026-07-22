@@ -1,6 +1,7 @@
 "use client";
 
 import AdminNavbar from "@/app/components/admin/AdminNavbar";
+import { apiFetch } from "@/app/lib/apiFetch";
 import React, { useState, useEffect, ChangeEvent, FormEvent, CSSProperties } from "react";
 import { useSelector } from "react-redux";
 
@@ -100,15 +101,17 @@ export default function AdminMoviesPage() {
     setLoadingMovies(true);
     setMovieError("");
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API}/api/movie/display`, {
+      const response = await apiFetch(`/api/movie/display`, {
         method: "GET",
-        headers: { Authorization: `Bearer ${accessToken}` },
-        credentials: "include",
+        headers: {
+        "Content-Type": "application/json",
+      },
       });
       const data = await response.json();
       if (!response.ok || !data.success) {
         throw new Error(data.message || "Failed to load movies");
       }
+   
       setMovies(data.movies || []);
     } catch (error: any) {
       setMovieError(error.message || "Failed to load movies");
@@ -144,12 +147,13 @@ export default function AdminMoviesPage() {
 async function fetchCast(movieId: string) {
   setLoadingCast(true);
   try {
-    const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API}/api/movie/cast/${movieId}`,
+    const response = await apiFetch(
+      `/api/movie/cast/${movieId}`,
       {
         method: "GET",
-        headers: { Authorization: `Bearer ${accessToken}` },
-        credentials: "include",
+       headers: {
+        "Content-Type": "application/json",
+      },
       }
     );
     const data = await response.json();
@@ -171,12 +175,13 @@ async function fetchCast(movieId: string) {
 async function fetchCrew(movieId: string) {
   setLoadingCrew(true);
   try {
-    const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API}/api/movie/crew/${movieId}`,
+    const response = await apiFetch(
+      `/api/movie/crew/${movieId}`,
       {
         method: "GET",
-        headers: { Authorization: `Bearer ${accessToken}` },
-        credentials: "include",
+       headers: {
+        "Content-Type": "application/json",
+      },
       }
     );
     const data = await response.json();
@@ -227,18 +232,16 @@ async function fetchCrew(movieId: string) {
 
     const isEditing = Boolean(editingCastId);
     const url = isEditing
-      ? `${process.env.NEXT_PUBLIC_API}/api/movie/cast/update/${editingCastId}`
-      : `${process.env.NEXT_PUBLIC_API}/api/movie/cast/add`;
+      ? `/api/movie/cast/update/${editingCastId}`
+      : `/api/movie/cast/add`;
 
     setCastSubmitting(true);
     try {
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method: isEditing ? "PUT" : "POST",
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        credentials: "include",
+        "Content-Type": "application/json",
+      },
         body: JSON.stringify(payload),
       });
       const data = await response.json();
@@ -275,12 +278,13 @@ async function fetchCrew(movieId: string) {
     if (!confirm("Remove this cast member?")) return;
     setDeletingCastId(id);
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API}/api/movie/cast/delete/${id}`,
+      const response = await apiFetch(
+        `/api/movie/cast/delete/${id}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${accessToken}` },
-          credentials: "include",
+         headers: {
+        "Content-Type": "application/json",
+      },
         }
       );
       if (!response.ok) {
@@ -336,13 +340,11 @@ async function fetchCrew(movieId: string) {
 
     setCrewSubmitting(true);
     try {
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method: isEditing ? "PUT" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        credentials: "include",
+       headers: {
+        "Content-Type": "application/json",
+      },
         body: JSON.stringify(payload),
       });
       const data = await response.json();
@@ -379,12 +381,13 @@ async function fetchCrew(movieId: string) {
     if (!confirm("Remove this crew member?")) return;
     setDeletingCrewId(id);
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API}/api/movie/crew/delete/${id}`,
+      const response = await apiFetch(
+        `/api/movie/crew/delete/${id}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${accessToken}` },
-          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
         }
       );
       if (!response.ok) {
