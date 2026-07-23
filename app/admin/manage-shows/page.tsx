@@ -30,11 +30,15 @@ interface DateTimeSlot {
   times: string[]; // "HH:mm" (24h), kept sorted
 }
 
+const DIMENSION_OPTIONS = ["2D", "3D", "4DX", "IMAX 2D", "IMAX 3D"];
+
 interface ShowForm {
   movieId: string;
   theatreId: string;
   screenId: string;
   availableSeats: string; // kept as string for the input, converted to Number on submit
+  dimension: string; // e.g. "2D", "3D", "IMAX 2D"
+  language: string; // e.g. "Hindi", "English"
 }
 
 type FormErrors = Partial<Record<keyof ShowForm | "prices" | "schedule", string>>;
@@ -55,6 +59,8 @@ interface Show {
   prices?: Record<string, number>; // per seat-category price, e.g. { DIAMOND: 400, GOLD: 300 }
   schedule?: DateTimeSlot[]; // multiple dates, each with multiple show times
   availableSeats: number;
+  dimension?: string;
+  language?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -64,6 +70,8 @@ const emptyForm: ShowForm = {
   theatreId: "",
   screenId: "",
   availableSeats: "",
+  dimension: "",
+  language: "",
 };
 
 const LIMIT = 10;
@@ -384,6 +392,8 @@ export default function AddShowPage() {
     if (!form.movieId) er.movieId = "Select a movie";
     if (!form.theatreId) er.theatreId = "Select a theatre";
     if (!form.screenId) er.screenId = "Select a screen";
+    if (!form.dimension) er.dimension = "Select a dimension";
+    if (!form.language.trim()) er.language = "Enter a language";
     if (!form.availableSeats.trim() || Number(form.availableSeats) <= 0)
       er.availableSeats = "Select a screen to load its seat capacity";
 
@@ -428,6 +438,8 @@ export default function AddShowPage() {
       theatreId: form.theatreId,
       screenId: form.screenId,
       availableSeats: Number(form.availableSeats),
+      dimension: form.dimension,
+      language: form.language.trim(),
       prices: Object.fromEntries(
         Object.entries(typePrices).map(([type, val]) => [type, Number(val)])
       ),
@@ -491,6 +503,8 @@ export default function AddShowPage() {
         theatreId: sh.theatreId ?? "",
         screenId: sh.screenId ?? "",
         availableSeats: String(sh.availableSeats ?? ""),
+        dimension: sh.dimension ?? "",
+        language: sh.language ?? "",
       });
 
       const prices: Record<string, number> = sh.prices ?? {};
@@ -625,6 +639,36 @@ export default function AddShowPage() {
               options={screenOptions.map((s) => ({ value: s._id, label: s.name }))}
             />
             {screensError && <p style={styles.errorText}>{screensError}</p>}
+
+            <div style={styles.row2}>
+              <SelectField
+                label="Dimension"
+                name="dimension"
+                value={form.dimension}
+                onChange={handleChange}
+                error={errors.dimension}
+                placeholder="Select a dimension"
+                options={DIMENSION_OPTIONS.map((d) => ({ value: d, label: d }))}
+              />
+              <div style={{ marginBottom: "1.25rem" }}>
+                <label htmlFor="language" style={styles.label}>
+                  Language
+                </label>
+                <input
+                  id="language"
+                  name="language"
+                  type="text"
+                  value={form.language}
+                  onChange={handleChange}
+                  placeholder="e.g. Hindi, English"
+                  style={{
+                    ...styles.input,
+                    borderColor: errors.language ? "#D6294C" : "#DADADA",
+                  }}
+                />
+                {errors.language && <p style={styles.errorText}>{errors.language}</p>}
+              </div>
+            </div>
 
             {/* Seat-category pricing, loaded from the selected screen */}
             <div style={{ marginBottom: "1.25rem" }}>
@@ -782,6 +826,10 @@ export default function AddShowPage() {
                   "Theatre · Screen"}
               </p>
               <p style={styles.previewMeta}>
+                {[form.dimension, form.language].filter(Boolean).join(" · ") ||
+                  "Dimension · Language"}
+              </p>
+              <p style={styles.previewMeta}>
                 {seatTypes.length > 0
                   ? seatTypes
                       .map((t) => `${t}: ${typePrices[t] ? `₹${typePrices[t]}` : "—"}`)
@@ -847,6 +895,11 @@ export default function AddShowPage() {
                         <p style={styles.previewMeta}>
                           {[sh.theatre?.name, sh.screen?.name].filter(Boolean).join(" · ")}
                         </p>
+                        {(sh.dimension || sh.language) && (
+                          <p style={styles.previewMeta}>
+                            {[sh.dimension, sh.language].filter(Boolean).join(" · ")}
+                          </p>
+                        )}
                         <p style={styles.previewMeta}>
                           {sh.schedule && sh.schedule.length > 0
                             ? sh.schedule

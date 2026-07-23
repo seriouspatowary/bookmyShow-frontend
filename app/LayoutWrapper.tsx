@@ -12,10 +12,13 @@ export default function LayoutWrapper({
   const pathname = usePathname();
 
   const isAdmin = pathname.startsWith("/admin");
+  
+  const isHeaderLess = pathname.startsWith('/movies/seat-layout');
+
 
   return (
     <>
-      {!isAdmin && (
+      {!isAdmin && !isHeaderLess &&(
         <>
           <Navbar />
           <Header />
